@@ -1,23 +1,156 @@
 
-create table public.monthly_scores (
-  id bigint generated always as identity primary key,
-  nickname text not null,
-  score bigint not null check (score > 0),
-  server text not null default '7531',
-  month_start date not null default
-    (date_trunc('month', now())::date),
-  recorded_at timestamptz not null default now()
-);
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OCE 7531 Monthly Top 10</title>
+<style>
+:root{color-scheme:dark;--bg:#0a1110;--panel:#111d1a;--line:#294239;--text:#effaf4;--muted:#a7bcb1;--lime:#b8ff5c}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(ellipse at top,#183329,#0a1110 60%);color:var(--text);font:16px/1.5 system-ui,sans-serif;min-height:100vh;padding:24px}
+main{max-width:900px;margin:auto}
+header{padding:26px 0}
+.flag{font-size:28px}
+h1{font-size:clamp(28px,5vw,42px);margin:8px 0}
+.sub,.muted{color:var(--muted)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:20px;margin:18px 0;overflow:hidden}
+.stats{display:flex;gap:12px;flex-wrap:wrap}
+.stat{flex:1;min-width:130px;background:#0b1512;border:1px solid var(--line);border-radius:12px;padding:14px}
+.stat small{display:block;color:var(--muted)}
+.stat strong{font-size:20px}
+.pill{display:inline-block;padding:4px 10px;border:1px solid var(--line);border-radius:99px;color:var(--lime);font-size:12px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:13px 10px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-size:12px;text-transform:uppercase}
+td:last-child,th:last-child{text-align:right}
+.rank{font-weight:800;width:60px}
+tr:nth-child(1) .rank{color:#ffd65c}
+tr:nth-child(2) .rank{color:#d3dce5}
+tr:nth-child(3) .rank{color:#d99a65}
+.score{font-weight:800;color:var(--lime);font-variant-numeric:tabular-nums}
+.notice{padding:12px;background:#0b1512;border-radius:10px;color:var(--muted);font-size:13px}
+button{background:var(--lime);color:#102015;border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer}
+footer{color:var(--muted);font-size:13px;padding:10px 0 30px}
+@media(max-width:520px){body{padding:14px}.card{padding:12px}th,td{padding:11px 5px;font-size:13px}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<div class="flag">🇦🇺 <span class="pill">OCEANIA</span></div>
+<h1>7531 Monthly Top 10</h1>
+<p class="sub">Slither.io · OCE · Best recorded score per nickname</p>
+</header>
 
-alter table public.monthly_scores
-enable row level security;
+<section class="stats">
+<div class="stat"><small>Tracking server</small><strong>7531</strong></div>
+<div class="stat"><small>Month</small><strong id="month">—</strong></div>
+<div class="stat"><small>Players recorded</small><strong id="count">0</strong></div>
+</section>
 
-revoke all on public.monthly_scores from anon, authenticated;
+<section class="card">
+<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+<h2>🏆 Monthly leaderboard</h2>
+<button id="refresh">Refresh scores</button>
+</div>
+<p id="status" class="muted">Connecting to leaderboard…</p>
+<div style="overflow-x:auto">
+<table>
+<thead><tr><th>Rank</th><th>Nickname</th><th>Best score</th></tr></thead>
+<tbody id="rows"><tr><td colspan="3">Loading…</td></tr></tbody>
+</table>
+</div>
+</section>
 
-grant select on public.monthly_scores to anon, authenticated;
+<p class="notice">Scores shown here are records saved in the shared database. This page does not yet collect scores automatically from the game.</p>
+<footer>OCE 7531 · Monthly leaderboard · <span id="updated">Not refreshed yet</span></footer>
+</main>
 
-create policy "Anyone can view monthly scores"
-on public.monthly_scores
-for select
-to anon, authenticated
-using (true);
+<script>
+const SUPABASE_URL = "PASTE_YOUR_PROJECT_URL_HERE";
+const SUPABASE_PUBLISHABLE_KEY = "PASTE_YOUR_PUBLISHABLE_KEY_HERE";
+
+const monthStart = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`;
+};
+
+document.getElementById("month").textContent =
+  new Intl.DateTimeFormat("en-AU",{month:"long",year:"numeric",timeZone:"Australia/Melbourne"}).format(new Date());
+
+async function loadScores() {
+  const status = document.getElementById("status");
+  const rows = document.getElementById("rows");
+  status.textContent = "Loading shared scores…";
+
+  if (SUPABASE_URL.includes("PASTE_") || SUPABASE_PUBLISHABLE_KEY.includes("PASTE_")) {
+    status.textContent = "Setup needed: add your Supabase project URL and publishable key in index.html.";
+    rows.innerHTML = '<tr><td colspan="3">Waiting for connection details.</td></tr>';
+    return;
+  }
+
+  try {
+    const url = new URL(SUPABASE_URL.replace(/\/+$/,"") + "/rest/v1/monthly_scores");
+    url.searchParams.set("select","nickname,score,server,month_start,recorded_at");
+    url.searchParams.set("server","eq.7531");
+    url.searchParams.set("month_start","eq." + monthStart());
+    url.searchParams.set("order","score.desc");
+    url.searchParams.set("limit","5000");
+
+    const response = await fetch(url,{
+      headers:{
+        "apikey":SUPABASE_PUBLISHABLE_KEY,
+        "Authorization":"Bearer " + SUPABASE_PUBLISHABLE_KEY
+      }
+    });
+    if (!response.ok) throw new Error("Database returned HTTP " + response.status);
+    const data = await response.json();
+
+    const best = new Map();
+    for (const item of data) {
+      const name = String(item.nickname || "").trim();
+      const score = Number(item.score);
+      if (!name || !Number.isFinite(score)) continue;
+      const key = name.toLocaleLowerCase();
+      if (!best.has(key) || score > best.get(key).score) {
+        best.set(key,{nickname:name,score});
+      }
+    }
+
+    const top = [...best.values()].sort((a,b)=>b.score-a.score || a.nickname.localeCompare(b.nickname)).slice(0,10);
+    document.getElementById("count").textContent = best.size;
+
+    rows.innerHTML = "";
+    if (!top.length) {
+      rows.innerHTML = '<tr><td colspan="3">No scores recorded for this month yet.</td></tr>';
+    } else {
+      top.forEach((p,i)=>{
+        const tr = document.createElement("tr");
+        const rank = document.createElement("td");
+        const nick = document.createElement("td");
+        const score = document.createElement("td");
+        rank.className = "rank";
+        score.className = "score";
+        rank.textContent = ["🥇","🥈","🥉"][i] || (i+1);
+        nick.textContent = p.nickname;
+        score.textContent = p.score.toLocaleString("en-AU");
+        tr.append(rank,nick,score);
+        rows.appendChild(tr);
+      });
+    }
+    status.textContent = "Connected · Shared database";
+    document.getElementById("updated").textContent =
+      "Last refreshed " + new Date().toLocaleTimeString("en-AU");
+  } catch (err) {
+    status.textContent = "Could not load scores: " + err.message + ". Check the URL, key, and database read policy.";
+    rows.innerHTML = '<tr><td colspan="3">Unable to load leaderboard.</td></tr>';
+  }
+}
+
+document.getElementById("refresh").addEventListener("click",loadScores);
+loadScores();
+setInterval(loadScores,60000);
+</script>
+</body>
+</html>
