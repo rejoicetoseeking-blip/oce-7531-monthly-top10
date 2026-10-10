@@ -151,6 +151,26 @@ async function loadScores() {
 document.getElementById("refresh").addEventListener("click",loadScores);
 loadScores();
 setInterval(loadScores,60000);
+  <script>
+  // CONNECT TO SUPABASE
+  const supabase = supabase.createClient(
+    'YOUR_SUPABASE_URL',
+    'YOUR_SUPABASE_ANON_KEY'
+  );
+
+  async function loadScores() {
+    const { data, error } = await supabase
+      .from('monthly_scores')
+      .select('*')
+      .eq('server', '7531')
+      .eq('month_start', '2026-10-10')
+      .order('score', { ascending: false });
+
+    console.log(data); // shows your scores
+  }
+
+  loadScores();
 </script>
+
 </body>
 </html>
